@@ -1,0 +1,204 @@
+{
+  "name": "Continuous Security Log Webhook (Fixed) final",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-alert",
+        "options": {
+          "responseData": {
+            "responseBody": "{\"status\":\"received\"}",
+            "responseCode": 200
+          }
+        }
+      },
+      "name": "Receive Logs (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        16,
+        16
+      ],
+      "webhookId": "security-log",
+      "id": "b390a309-1fbb-4861-b193-e170b346d9ff"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "filter-high-severity",
+              "leftValue": "={{ $json.body.some(log => (log.rule?.level ?? 0) > 3) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        256,
+        16
+      ],
+      "id": "severity-filter",
+      "name": "Filter High Severity"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process ALL logs (raw logs)\nconst allLogs = [];\nconst inputItems = $input.all();\n\nfor (const item of inputItems) {\n  const body = item.json.body || [];\n\n  for (const log of body) {\n    const groups = Array.isArray(log.groups) ? log.groups.join(\", \") : \"N/A\";\n    const timestamp = log.timestamp || \"Unknown time\";\n    const level = log.rule?.level ?? \"N/A\";\n    const description = log.rule?.description ?? \"No description\";\n    const id = log.rule?.id ?? \"N/A\";\n\n    allLogs.push(\n      `Time: ${timestamp}\nLevel: ${level}\nRule ID: ${id}\nDescription: ${description}\nGroups: ${groups}\n---------------------`\n    );\n  }\n}\n\nreturn [\n  {\n    json: {\n      logs_text: allLogs.join(\"\\n\"),\n      log_type: \"raw\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -64
+      ],
+      "id": "raw-logs-processor",
+      "name": "Process Raw Logs"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process HIGH SEVERITY logs only (level > 3)\nconst highSeverityLogs = [];\nconst inputItems = $input.all();\n\nfor (const item of inputItems) {\n  const body = item.json.body || [];\n\n  for (const log of body) {\n    const level = log.rule?.level ?? 0;\n    \n    // Only process logs with severity > 3\n    if (level > 3) {\n      const groups = Array.isArray(log.groups) ? log.groups.join(\", \") : \"N/A\";\n      const timestamp = log.timestamp || \"Unknown time\";\n      const description = log.rule?.description ?? \"No description\";\n      const id = log.rule?.id ?? \"N/A\";\n\n      highSeverityLogs.push(\n        `🚨 HIGH SEVERITY ALERT 🚨\nTime: ${timestamp}\nLevel: ${level}\nRule ID: ${id}\nDescription: ${description}\nGroups: ${groups}\n---------------------`\n      );\n    }\n  }\n}\n\nreturn [\n  {\n    json: {\n      logs_text: highSeverityLogs.join(\"\\n\"),\n      log_type: \"high_severity\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        96
+      ],
+      "id": "high-severity-processor",
+      "name": "Process High Severity Logs"
+    },
+    {
+      "parameters": {
+        "chatId": "586240615",
+        "text": "={{ $json.logs_text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        736,
+        -64
+      ],
+      "id": "raw-logs-telegram",
+      "name": "Send Raw Logs",
+      "credentials": {
+        "telegramApi": {
+          "id": "Cd19iJlTlaSA9sXB",
+          "name": "Telegram account wazuh log"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "586240615",
+        "text": "={{ $json.logs_text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        736,
+        96
+      ],
+      "id": "high-severity-telegram",
+      "name": "Send High Severity Logs",
+      "credentials": {
+        "telegramApi": {
+          "id": "Cd19iJlTlaSA9sXB",
+          "name": "Telegram account wazuh log"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Logs (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Filter High Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High Severity": {
+      "main": [
+        [
+          {
+            "node": "Process High Severity Logs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process Raw Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Raw Logs": {
+      "main": [
+        [
+          {
+            "node": "Send Raw Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process High Severity Logs": {
+      "main": [
+        [
+          {
+            "node": "Send High Severity Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v0",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "88a12075-81b3-4a19-8b49-c05f24ca8e68",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c1b2fe90b209268cd97a21bf072069990f5524b5b62753109c9fd35ccb31e6d1"
+  },
+  "id": "8KT5GxgPfCuxefxH",
+  "tags": [
+    {
+      "createdAt": "2025-11-01T16:29:41.633Z",
+      "updatedAt": "2025-11-01T16:29:41.633Z",
+      "id": "6vf2fFpgKxUhd6DT",
+      "name": "final"
+    }
+  ]
+}
